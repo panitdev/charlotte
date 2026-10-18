@@ -1,0 +1,25 @@
+{
+  "name": "@charlotte-ui/utils",
+  "version": "0.1.0",
+  "description": "Shared helpers for Charlotte UI components.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/panitdev/charlotte.git",
+    "directory": "packages/utils"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.3.1"
+  }
+}

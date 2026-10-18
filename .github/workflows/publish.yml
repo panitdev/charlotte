@@ -1,0 +1,64 @@
+name: Publish
+
+# Packages are versioned independently. Bumping a package's version on main
+# publishes it; versions already on npm are skipped, so a re-run is safe.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/*/package.json'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      # Dependencies come first so a package never lands before what it needs.
+      # Each publish is tagged `<name>@<version>` to mark the release in git.
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for name in utils theme button input label textarea select switch card table dropdown-menu dialog labs; do
+            dir="packages/$name"
+            PKG=$(node -p "require('./$dir/package.json').name")
+            VERSION=$(node -p "require('./$dir/package.json').version")
+            if npm view "$PKG@$VERSION" version >/dev/null 2>&1; then
+              echo "$PKG@$VERSION already published, skipping"
+              continue
+            fi
+            (cd "$dir" && npm publish --access public --provenance)
+            git tag "$PKG@$VERSION"
+            git push origin "$PKG@$VERSION"
+          done

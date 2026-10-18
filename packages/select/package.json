@@ -1,0 +1,30 @@
+{
+  "name": "@charlotte-ui/select",
+  "version": "0.1.0",
+  "description": "Select menu styled to sit alongside Input.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/panitdev/charlotte.git",
+    "directory": "packages/select"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@charlotte-ui/utils": "^0.1.0"
+  },
+  "peerDependencies": {
+    "lucide-react": ">=0.487.0",
+    "radix-ui": "^1.4.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@charlotte-ui/labs",
+  "version": "0.1.0",
+  "description": "Experimental Charlotte UI components that may change or go away.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/panitdev/charlotte.git",
+    "directory": "packages/labs"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@charlotte-ui/dialog": "^0.1.0",
+    "@charlotte-ui/utils": "^0.1.0",
+    "vaul": "^1.1.2"
+  },
+  "peerDependencies": {
+    "framer-motion": "^12.23.12",
+    "lucide-react": ">=0.487.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

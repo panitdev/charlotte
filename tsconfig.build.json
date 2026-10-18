@@ -1,0 +1,41 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/utils"
+    },
+    {
+      "path": "packages/button"
+    },
+    {
+      "path": "packages/input"
+    },
+    {
+      "path": "packages/label"
+    },
+    {
+      "path": "packages/textarea"
+    },
+    {
+      "path": "packages/select"
+    },
+    {
+      "path": "packages/switch"
+    },
+    {
+      "path": "packages/card"
+    },
+    {
+      "path": "packages/table"
+    },
+    {
+      "path": "packages/dropdown-menu"
+    },
+    {
+      "path": "packages/dialog"
+    },
+    {
+      "path": "packages/labs"
+    }
+  ]
+}

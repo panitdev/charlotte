@@ -1,0 +1,29 @@
+{
+  "name": "@charlotte-ui/label",
+  "version": "0.1.0",
+  "description": "Accessible form label.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/panitdev/charlotte.git",
+    "directory": "packages/label"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@charlotte-ui/utils": "^0.1.0"
+  },
+  "peerDependencies": {
+    "radix-ui": "^1.4.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

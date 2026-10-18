@@ -1,0 +1,37 @@
+{
+  "name": "charlotte",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "storybook dev -p 6006",
+    "build": "tsc -b tsconfig.build.json",
+    "clean": "tsc -b tsconfig.build.json --clean",
+    "typecheck": "tsc -p tsconfig.json",
+    "storybook:build": "storybook build"
+  },
+  "devDependencies": {
+    "@storybook/addon-essentials": "8",
+    "@storybook/react": "8",
+    "@storybook/react-vite": "8",
+    "@tailwindcss/postcss": "^4.1.11",
+    "@types/node": "^20.19.9",
+    "@types/react": "19.1.2",
+    "@types/react-dom": "19.1.2",
+    "framer-motion": "^12.23.12",
+    "lucide-react": "^0.487.0",
+    "radix-ui": "^1.4.3",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "storybook": "8",
+    "tailwindcss": "^4.1.11",
+    "typescript": "^5.9.2",
+    "vite": "6",
+    "vite-tsconfig-paths": "^6.1.1"
+  },
+  "overrides": {
+    "@types/react": "19.1.2",
+    "@types/react-dom": "19.1.2"
+  }
+}
