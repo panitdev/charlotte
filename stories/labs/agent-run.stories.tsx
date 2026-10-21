@@ -791,3 +791,187 @@ export const PendingThenResolved: Story = {
     )
   },
 }
+
+/**
+ * The closing paragraph of a turn, streamed through a synthetic provider whose
+ * cadence is set by the controls: tokens per second and a delivery pattern
+ * (a cold start that releases a thousand-token burst, proxy buffering, stalls
+ * mid-stream). The provider only yields strings; the app appends them to a
+ * message item exactly as it would from a real API.
+ *
+ * Toggle `streamReveal` to compare. Off is the component's default — every
+ * update painted as it lands. On paces the text and fades it in, and shows a
+ * burst at once in paragraph groups rather than trickling it.
+ */
+export const StreamReveal: Story = {
+  args: { nodeSize: 64, lineWidth: 2 },
+  render: (args) => {
+    const [items, setItems] = React.useState<AgentRunItem[]>([])
+    const [reveal, setReveal] = React.useState(true)
+    const [tps, setTps] = React.useState(70)
+    const [pattern, setPattern] = React.useState<keyof typeof deliveryPatterns>("coldBurst")
+    const [maxLag, setMaxLag] = React.useState(300)
+    const [fade, setFade] = React.useState(260)
+    const [burst, setBurst] = React.useState(300)
+    const [blur, setBlur] = React.useState(0)
+    const runRef = React.useRef(0)
+
+    const run = React.useCallback(() => {
+      const runId = ++runRef.current
+      const alive = () => runRef.current === runId
+      setItems([
+        { kind: "tool", id: "t1", name: "Run command", state: "success" },
+        { kind: "message", id: "m1", text: "", streaming: true },
+      ])
+      ;(async () => {
+        for await (const chunk of syntheticTokens({ tps, ...deliveryPatterns[pattern] }, alive)) {
+          if (!alive()) return
+          setItems((prev) =>
+            prev.map((it) => (it.kind === "message" ? { ...it, text: it.text + chunk } : it))
+          )
+        }
+        if (alive())
+          setItems((prev) =>
+            prev.map((it) => (it.kind === "message" ? { ...it, streaming: false } : it))
+          )
+      })()
+    }, [tps, pattern])
+
+    React.useEffect(() => {
+      run()
+      return () => {
+        runRef.current++
+      }
+    }, [run])
+
+    const field = "flex items-center gap-2 text-xs text-muted-foreground"
+    const input =
+      "w-20 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <button
+            type="button"
+            onClick={run}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            Replay
+          </button>
+          <label className={field}>
+            <input type="checkbox" checked={reveal} onChange={(e) => setReveal(e.target.checked)} />
+            streamReveal
+          </label>
+          <label className={field}>
+            pattern
+            <select
+              className={input + " w-auto"}
+              value={pattern}
+              onChange={(e) => setPattern(e.target.value as keyof typeof deliveryPatterns)}
+            >
+              {Object.keys(deliveryPatterns).map((k) => (
+                <option key={k}>{k}</option>
+              ))}
+            </select>
+          </label>
+          <label className={field}>
+            tok/s
+            <select className={input} value={tps} onChange={(e) => setTps(+e.target.value)}>
+              {[30, 50, 70, 120, 200].map((v) => (
+                <option key={v}>{v}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label className={field}>
+            maxLag
+            <input className={input} type="number" step={50} value={maxLag} onChange={(e) => setMaxLag(+e.target.value)} />
+          </label>
+          <label className={field}>
+            fade
+            <input className={input} type="number" step={20} value={fade} onChange={(e) => setFade(+e.target.value)} />
+          </label>
+          <label className={field}>
+            burstThreshold
+            <input className={input} type="number" step={50} value={burst} onChange={(e) => setBurst(+e.target.value)} />
+          </label>
+          <label className={field}>
+            blur
+            <input className={input} type="number" min={0} value={blur} onChange={(e) => setBlur(+e.target.value)} />
+          </label>
+        </div>
+        <AgentRun
+          {...args}
+          items={items}
+          // A fresh object each render is fine: AgentRun compares it by value.
+          streamReveal={reveal ? { maxLag, fade, burstThreshold: burst > 0 ? burst : false, blur } : false}
+        />
+      </div>
+    )
+  },
+}
+
+const STREAM_SOURCE =
+  "Lint passes and the component is registered in the registry manifest, so a fresh install will pick it up once the endpoint is reachable again. The publish endpoint is down right now, so the generated install URL will need a retry once it recovers.\n\nNothing else in the run depends on it: the timeline renders from the local component, the stories build cleanly, and the reveal animation drives the whole chain off a single progress value per row. When the endpoint comes back, re-running the publish step is enough.\n\nThere is no state to reconcile and no partial write to clean up, because the manifest is only committed after the upload succeeds. "
+
+type Delivery = {
+  /** Silence before the first token, ms. */
+  ttft: number
+  /** Tokens already generated when the first byte goes out; they land together. */
+  burst: number
+  /** Proxy buffering: deliveries are held to multiples of this, ms. 0 = off. */
+  packet: number
+  /** Every ~this many tokens, delivery stalls for `stallMs`. 0 = off. */
+  stallEvery: number
+  stallMs: number
+  /** Total tokens. */
+  total: number
+}
+
+const deliveryPatterns = {
+  steady: { ttft: 400, burst: 0, packet: 0, stallEvery: 0, stallMs: 0, total: 400 },
+  coldBurst: { ttft: 3000, burst: 600, packet: 0, stallEvery: 0, stallMs: 0, total: 900 },
+  proxyBuffering: { ttft: 500, burst: 0, packet: 250, stallEvery: 0, stallMs: 0, total: 400 },
+  midStall: { ttft: 400, burst: 0, packet: 0, stallEvery: 180, stallMs: 1800, total: 600 },
+} satisfies Record<string, Delivery>
+
+/**
+ * A stand-in for a provider: yields the chunks a client would see, at the
+ * times it would see them. Generation runs at `tps`; delivery is then held
+ * back by the TTFT, stalls and packet boundaries, so held tokens land together.
+ */
+async function* syntheticTokens(cfg: Delivery & { tps: number }, alive: () => boolean) {
+  const words = STREAM_SOURCE.match(/\s*\S+/g) ?? []
+  const tokens: string[] = []
+  for (let i = 0; tokens.length < cfg.total; i++) {
+    const w = words[i % words.length]
+    // Roughly how a BPE tokenizer splits English: long words into pieces.
+    for (let j = 0; j < w.length; j += 5) tokens.push(w.slice(j, j + 5))
+  }
+  const base = 1000 / cfg.tps
+  let gen = cfg.ttft
+  let holdUntil = cfg.ttft
+  let nextStall = cfg.burst + cfg.stallEvery
+  const due = tokens.slice(0, cfg.total).map((_, i) => {
+    if (i >= cfg.burst) gen += base * (0.7 + Math.random() * 0.6)
+    if (cfg.stallEvery && i >= nextStall) {
+      holdUntil = gen + cfg.stallMs
+      nextStall = i + cfg.stallEvery
+    }
+    let at = Math.max(gen, holdUntil)
+    if (cfg.packet) at = Math.ceil(at / cfg.packet) * cfg.packet
+    return at
+  })
+  const t0 = performance.now()
+  let i = 0
+  while (i < due.length) {
+    const at = due[i]
+    let chunk = ""
+    while (i < due.length && due[i] - at < 4) chunk += tokens[i++]
+    const wait = t0 + at - performance.now()
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+    if (!alive()) return
+    yield chunk
+  }
+}
