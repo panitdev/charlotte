@@ -65,3 +65,10 @@ every package whose version isn't on npm yet and tags it `<name>@<version>`.
 
 When a release needs a newer version of another `@charlotte-ui` package, raise
 its range in the dependent's `package.json` in the same change.
+
+Every commit and pull request is also published to [pkg.pr.new](https://pkg.pr.new)
+by `.github/workflows/preview.yml`, without touching npm. Install one by commit:
+
+```sh
+npm i https://pkg.pr.new/@charlotte-ui/button@<sha>
+```
