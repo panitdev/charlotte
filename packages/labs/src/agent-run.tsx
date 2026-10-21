@@ -14,7 +14,12 @@ import { Check, ChevronRight, X } from "lucide-react"
 
 import { cn, DEFAULT_EASE } from "@charlotte-ui/utils"
 
-import { StreamText, type StreamTextOptions } from "./stream-text.js"
+import {
+  StreamFade,
+  StreamText,
+  useStreamText,
+  type StreamTextOptions,
+} from "./stream-text.js"
 
 /**
  * Agent conversation timeline.
@@ -63,6 +68,8 @@ type RunContextValue = {
    * having streamed in. See {@link AgentRunProps.revealOnMount}.
    */
   isInitialCommit: () => boolean
+  /** {@link AgentRunProps.streamReveal}, resolved; rows without `stream` inherit it. */
+  stream: { messages: boolean; thinking: boolean; options: StreamTextOptions } | null
 }
 
 const RunContext = React.createContext<RunContextValue | null>(null)
@@ -719,6 +726,14 @@ type AgentRunProps = {
   /** Maps a tool item to its presentation. Defaults to the tool name as title. */
   renderTool?: (item: AgentRunToolItem) => AgentToolRender
   /**
+   * Renders a message item's text — through Markdown, for example. With
+   * `streamReveal` on, it is handed the paced prefix rather than the whole
+   * text; see {@link AgentMessageProps.renderText}. Defaults to plain text.
+   */
+  renderMessage?: (text: string, item: AgentRunMessageItem) => React.ReactNode
+  /** As `renderMessage`, for thinking items. */
+  renderThinking?: (text: string, item: AgentRunThinkingItem) => React.ReactNode
+  /**
    * Fires when the user clicks a thinking item's header, with the mode the
    * component would pick on its own. Required only to *control* the mode from
    * app state (write a value back onto the item's `mode`) — which is what lets
@@ -755,6 +770,10 @@ type AgentRunProps = {
    * Set `streaming` on an item to `false` when its stream ends so the tail
    * drains quickly. Text already present when a row mounts is never replayed,
    * so restored history shows at once.
+   *
+   * Composed rows inherit it too, unless they set their own `stream`. Either
+   * way only string text is paced; render it richly with `renderMessage` /
+   * `renderThinking`, or a row's `renderText`.
    */
   streamReveal?: boolean | AgentRunStreamReveal
   /** Outer node diameter in pixels. Defaults to 64 (4rem) — a deliberately spacious node. */
@@ -770,6 +789,30 @@ type AgentRunProps = {
  * it — every time an unrelated item in the list changes. In `items` mode that
  * happens on every streamed token.
  */
+/**
+ * {@link useItemHandler} for `renderMessage` / `renderThinking`: one stable
+ * `renderText` per item id, which calls the latest renderer with the latest
+ * item. Undefined while there is no renderer, so rows keep their default.
+ */
+function useItemRender<I extends { id: string }>(
+  render: ((text: string, item: I) => React.ReactNode) | undefined
+) {
+  const renderers = React.useRef(new Map<string, (text: string) => React.ReactNode>())
+  const latest = React.useRef({ render, items: new Map<string, I>() })
+  latest.current.render = render
+  const get = React.useCallback((item: I) => {
+    latest.current.items.set(item.id, item)
+    let renderer = renderers.current.get(item.id)
+    if (!renderer) {
+      renderer = (text: string) =>
+        latest.current.render?.(text, latest.current.items.get(item.id)!)
+      renderers.current.set(item.id, renderer)
+    }
+    return renderer
+  }, [])
+  return render ? get : undefined
+}
+
 function useItemHandler<T>(callback: ((id: string, value: T) => void) | undefined) {
   const handlers = React.useRef(new Map<string, (value: T) => void>())
   const latest = React.useRef(callback)
@@ -788,6 +831,8 @@ export function AgentRun({
   children,
   items,
   renderTool,
+  renderMessage,
+  renderThinking,
   onThinkingModeChange,
   onToolOpenChange,
   revealOnMount = true,
@@ -820,13 +865,8 @@ export function AgentRun({
     if (!revealOnMount && hadInitialRows.current) markPlayed()
   }, [markPlayed, revealOnMount])
 
-  const ctx = React.useMemo<RunContextValue>(
-    () => ({ nodeSize, lineWidth, reduce: !!prefersReduced, enroll, isInitialCommit }),
-    [nodeSize, lineWidth, prefersReduced, enroll, isInitialCommit]
-  )
-
   // Rows are memoized and re-render on every streamed token otherwise, so the
-  // options handed to them must keep their identity across renders even when
+  // options they read from context must keep their identity across renders even when
   // the app passes a fresh inline object each time.
   const revealKey = streamReveal ? JSON.stringify(streamReveal) : ""
   const reveal = React.useMemo(() => {
@@ -837,8 +877,22 @@ export function AgentRun({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey])
 
+  const ctx = React.useMemo<RunContextValue>(
+    () => ({
+      nodeSize,
+      lineWidth,
+      reduce: !!prefersReduced,
+      enroll,
+      isInitialCommit,
+      stream: reveal,
+    }),
+    [nodeSize, lineWidth, prefersReduced, enroll, isInitialCommit, reveal]
+  )
+
   const modeHandler = useItemHandler(onThinkingModeChange)
   const openHandler = useItemHandler(onToolOpenChange)
+  const messageRender = useItemRender(renderMessage)
+  const thinkingRender = useItemRender(renderThinking)
 
   const rows = items
     ? items.map((item) => {
@@ -846,8 +900,8 @@ export function AgentRun({
           return (
             <AgentMessage
               key={item.id}
-              stream={reveal?.messages ? reveal.options : undefined}
               streaming={item.streaming}
+              renderText={messageRender?.(item)}
             >
               {item.text}
             </AgentMessage>
@@ -860,8 +914,8 @@ export function AgentRun({
               title={item.title}
               mode={item.mode}
               onModeChange={modeHandler(item.id)}
-              stream={reveal?.thinking ? reveal.options : undefined}
               streaming={item.streaming}
+              renderText={thinkingRender?.(item)}
             >
               {item.text}
             </AgentThinking>
@@ -1170,12 +1224,22 @@ type AgentMessageProps = {
   children: React.ReactNode
   /**
    * Paces and fades in string children as they grow — see {@link StreamText}.
-   * `true` uses the defaults; an object tunes them. Off by default. Pass a
-   * stable object: the row is memoized.
+   * `true` uses the defaults; an object tunes them. Defaults to
+   * {@link AgentRunProps.streamReveal}, which is off unless set. Pass a stable
+   * object: the row is memoized.
    */
   stream?: boolean | StreamTextOptions
   /** Whether more text is coming. Only read with `stream`. */
   streaming?: boolean
+  /**
+   * Renders string children — through Markdown, for example. With `stream`
+   * on, it is called with the paced prefix ({@link useStreamText}) on every
+   * drain step, and words fade in as their elements mount: emit one element
+   * per word with {@link streamWords}, or the same class from a Markdown
+   * plugin. Without `stream`, it is called with the text as passed. Pass a
+   * stable function: the row is memoized.
+   */
+  renderText?: (text: string) => React.ReactNode
   className?: string
   /** @internal Set by {@link AgentRun}; true for the final row. */
   isLast?: boolean
@@ -1186,10 +1250,11 @@ function AgentMessageImpl({
   children,
   stream,
   streaming,
+  renderText,
   className,
   isLast = false,
 }: AgentMessageProps) {
-  const { nodeSize, reduce } = useRun()
+  const { nodeSize, reduce, stream: inherited } = useRun()
   // Shorter slice than a step: prose has no ring to trace, just line + fade.
   const { progress } = useRowProgress(reduce, { duration: 0.55 })
   const opacity = useTransform(progress, [0.1, 0.8], [0, 1])
@@ -1207,20 +1272,41 @@ function AgentMessageImpl({
         )}
         style={{ opacity, y }}
       >
-        {renderStreamed(children, stream, streaming)}
+        {renderStreamed(
+          children,
+          stream ?? (inherited?.messages ? inherited.options : undefined),
+          streaming,
+          renderText
+        )}
       </motion.div>
     </div>
   )
 }
 
-/** String children through {@link StreamText} when `stream` is on; anything else untouched. */
+/**
+ * String children through `renderText` when there is one, else through
+ * {@link StreamText} when `stream` is on; anything else untouched.
+ */
 function renderStreamed(
   children: React.ReactNode,
   stream: boolean | StreamTextOptions | undefined,
   streaming: boolean | undefined,
+  renderText: ((text: string) => React.ReactNode) | undefined,
   instant?: boolean
 ) {
-  if (!stream || typeof children !== "string") return children
+  if (typeof children !== "string") return children
+  if (renderText) {
+    return (
+      <RenderedText
+        text={children}
+        stream={stream}
+        streaming={streaming}
+        instant={instant}
+        render={renderText}
+      />
+    )
+  }
+  if (!stream) return children
   return (
     <StreamText
       text={children}
@@ -1229,6 +1315,25 @@ function renderStreamed(
       options={stream === true ? undefined : stream}
     />
   )
+}
+
+/** `renderText`, fed the paced prefix when `stream` is on. */
+function RenderedText({
+  text,
+  stream,
+  streaming,
+  instant = false,
+  render,
+}: {
+  text: string
+  stream: boolean | StreamTextOptions | undefined
+  streaming: boolean | undefined
+  instant?: boolean
+  render: (text: string) => React.ReactNode
+}) {
+  const options = stream === true || !stream ? undefined : stream
+  const shown = useStreamText(text, { ...options, streaming, instant: instant || !stream })
+  return <StreamFade options={options}>{render(shown)}</StreamFade>
 }
 
 export const AgentMessage = React.memo(AgentMessageImpl)
@@ -1470,12 +1575,15 @@ type AgentThinkingProps = {
   peekLines?: number
   /**
    * Paces and fades in string children as they grow — see {@link StreamText}.
-   * `true` uses the defaults; an object tunes them. Off by default. Pass a
-   * stable object: the row is memoized. While collapsed, updates land at once.
+   * `true` uses the defaults; an object tunes them. Defaults to
+   * {@link AgentRunProps.streamReveal}, which is off unless set. Pass a stable
+   * object: the row is memoized. While collapsed, updates land at once.
    */
   stream?: boolean | StreamTextOptions
   /** Whether more reasoning is coming. Only read with `stream`. */
   streaming?: boolean
+  /** Renders string children. As {@link AgentMessageProps.renderText}. */
+  renderText?: (text: string) => React.ReactNode
   className?: string
   /** @internal Set by {@link AgentRun}; true for the final row. */
   isLast?: boolean
@@ -1502,10 +1610,11 @@ function AgentThinkingImpl({
   peekLines = 6,
   stream,
   streaming,
+  renderText,
   className,
   isLast = false,
 }: AgentThinkingProps) {
-  const { nodeSize, reduce } = useRun()
+  const { nodeSize, reduce, stream: inherited } = useRun()
   // Same slice as prose — a thinking row is part of the same stroke chain, and
   // its reveal is mount-only, so changing mode never re-enrolls with the
   // coordinator.
@@ -1582,10 +1691,20 @@ function AgentThinkingImpl({
             ref={contentRef}
             // `flow-root` keeps the padding inside the measured height rather
             // than letting a child's margin collapse out of it.
-            className="pt-1 pl-[1.375rem] text-sm leading-relaxed text-muted-foreground"
+            // Plain reasoning keeps its line breaks; rendered content brings its own.
+            className={cn(
+              "pt-1 pl-[1.375rem] text-sm leading-relaxed text-muted-foreground",
+              typeof children === "string" && !renderText && "whitespace-pre-wrap"
+            )}
             style={{ display: "flow-root" }}
           >
-            {renderStreamed(children, stream, streaming, current === "collapsed")}
+            {renderStreamed(
+              children,
+              stream ?? (inherited?.thinking ? inherited.options : undefined),
+              streaming,
+              renderText,
+              current === "collapsed"
+            )}
           </div>
         </motion.div>
       </motion.div>

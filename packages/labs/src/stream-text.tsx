@@ -35,6 +35,12 @@ import { useReducedMotion } from "framer-motion"
  * already on screen, or it is history), and so is any `text` that does not
  * extend the previous one. Under `prefers-reduced-motion`, or with `instant`,
  * every update is shown as it arrives — exactly a plain text node.
+ *
+ * Text that has to be rendered richly, such as Markdown, cannot go through a
+ * span the component writes itself. {@link useStreamText} is the same pacing
+ * as a hook that returns the prefix to show, for the app to render however it
+ * likes; {@link streamWords} and {@link StreamFade} give that rendering the
+ * fade, one element per word.
  */
 
 export type StreamTextOptions = {
@@ -115,15 +121,31 @@ const useIsoLayoutEffect =
 
 const RATE_WINDOW = 1000
 
-type Live = { el: HTMLSpanElement; until: number; anim?: Animation }
+/** Where a {@link Pacer} sends the text it releases. */
+type Sink = {
+  /**
+   * `pieces` were just released, in order: words, or the paragraph groups of a
+   * burst when `burst` is set.
+   */
+  reveal(pieces: string[], burst: boolean, now: number, o: Resolved): void
+  /** `rest` shows at once with no fade, and anything still fading settles. */
+  flush(rest: string): void
+  /** The text was replaced rather than appended to; `text` shows as-is. */
+  reset(text: string): void
+  /** Called after every drain. Returns the ms until the sink next needs a wake, or -1. */
+  settle(now: number): number
+}
 
-/** The drain loop. One per mounted `StreamText`; owns the span's children. */
+/**
+ * The drain loop: decides how much of the text shows and when, and nothing
+ * else. What showing means is up to its {@link Sink} — spans written straight
+ * into the DOM for `StreamText`, a React state update for `useStreamText`.
+ */
 class Pacer {
   private src: string
   private shown: number
   private streaming: boolean | undefined = undefined
   private instant = false
-  private live: Live[] = []
   // Recent arrivals, for the input rate the burst test compares against.
   private arrivals: { t: number; n: number }[] = []
   private since = 0
@@ -133,13 +155,17 @@ class Pacer {
   private attached = false
 
   constructor(
-    private root: HTMLElement,
-    private settled: Text,
+    private sink: Sink,
     initial: string,
     private o: Resolved
   ) {
     this.src = initial
     this.shown = initial.length
+  }
+
+  /** The prefix released so far. */
+  get text() {
+    return this.src.slice(0, this.shown)
   }
 
   setOptions(o: Resolved) {
@@ -170,7 +196,10 @@ class Pacer {
     if (text === this.src) return
     if (!text.startsWith(this.src)) {
       // Replaced or edited, not appended: there is nothing to reveal.
-      this.reset(text)
+      this.cancel()
+      this.src = text
+      this.shown = text.length
+      this.sink.reset(text)
       return
     }
     this.arrivals.push({ t: performance.now(), n: text.length - this.src.length })
@@ -179,31 +208,10 @@ class Pacer {
     else this.schedule(this.o.tick)
   }
 
-  private reset(text: string) {
-    this.cancel()
-    for (const l of this.live) l.anim?.cancel()
-    this.live = []
-    this.root.replaceChildren(this.settled)
-    this.settled.data = text
-    this.src = text
-    this.shown = text.length
-  }
-
   private flushAll() {
-    if (this.live.length) {
-      let add = ""
-      for (const l of this.live) {
-        l.anim?.cancel()
-        add += l.el.textContent
-        l.el.remove()
-      }
-      this.live = []
-      this.settled.data += add
-    }
-    if (this.shown < this.src.length) {
-      this.settled.data += this.src.slice(this.shown)
-      this.shown = this.src.length
-    }
+    const rest = this.src.slice(this.shown)
+    this.shown = this.src.length
+    this.sink.flush(rest)
   }
 
   private cancel() {
@@ -238,10 +246,10 @@ class Pacer {
       else this.emitWords(this.pickEnd(backlog, dt), now)
     }
 
-    this.settle(now)
+    const wait = this.sink.settle(now)
 
     if (this.shown < this.src.length) this.schedule(this.o.tick)
-    else if (this.live.length) this.schedule(Math.max(this.live[0].until - performance.now(), 0))
+    else if (wait >= 0) this.schedule(wait)
   }
 
   /**
@@ -282,9 +290,7 @@ class Pacer {
   private emitWords(end: number, now: number) {
     const chunk = this.src.slice(this.shown, end)
     this.shown = end
-    const words = chunk.match(/\S+\s*|\s+/g) ?? []
-    const step = Math.min(this.o.stagger, this.o.tick / Math.max(words.length, 1))
-    words.forEach((w, i) => this.spawn(w, i * step, this.o.fade, now))
+    this.sink.reveal(chunk.match(/\S+\s*|\s+/g) ?? [], false, now, this.o)
   }
 
   private emitGroup(now: number) {
@@ -292,39 +298,237 @@ class Pacer {
     this.shown = this.src.length
     // Paragraphs keep the blank line that ends them, so the joined text is unchanged.
     const parts = chunk.match(/[\s\S]*?(?:\n\s*\n|$)/g)?.filter(Boolean) ?? [chunk]
-    parts.forEach((p, i) => this.spawn(p, i * this.o.burstStagger, this.o.burstFade, now))
+    this.sink.reveal(parts, true, now, this.o)
+  }
+}
+
+type Live = { el: HTMLSpanElement; until: number; anim?: Animation }
+
+/** `StreamText`'s sink. Owns the span's children. */
+class DomSink implements Sink {
+  private live: Live[] = []
+
+  constructor(
+    private root: HTMLElement,
+    private settled: Text
+  ) {}
+
+  reveal(pieces: string[], burst: boolean, now: number, o: Resolved) {
+    if (burst) {
+      pieces.forEach((p, i) => this.spawn(p, i * o.burstStagger, o.burstFade, now, o))
+      return
+    }
+    const step = Math.min(o.stagger, o.tick / Math.max(pieces.length, 1))
+    pieces.forEach((w, i) => this.spawn(w, i * step, o.fade, now, o))
   }
 
-  private spawn(text: string, delay: number, duration: number, now: number) {
+  flush(rest: string) {
+    if (this.live.length) {
+      let add = ""
+      for (const l of this.live) {
+        l.anim?.cancel()
+        add += l.el.textContent
+        l.el.remove()
+      }
+      this.live = []
+      this.settled.data += add
+    }
+    if (rest) this.settled.data += rest
+  }
+
+  reset(text: string) {
+    for (const l of this.live) l.anim?.cancel()
+    this.live = []
+    this.root.replaceChildren(this.settled)
+    this.settled.data = text
+  }
+
+  /** Merges words whose fade has finished into the leading text node. */
+  settle(now: number) {
+    let k = 0
+    while (k < this.live.length && this.live[k].until <= now) k++
+    if (k) {
+      let add = ""
+      for (let i = 0; i < k; i++) {
+        add += this.live[i].el.textContent
+        this.live[i].el.remove()
+      }
+      this.live.splice(0, k)
+      this.settled.data += add
+    }
+    return this.live.length ? Math.max(this.live[0].until - performance.now(), 0) : -1
+  }
+
+  private spawn(text: string, delay: number, duration: number, now: number, o: Resolved) {
     const el = document.createElement("span")
     el.textContent = text
     this.root.append(el)
     let anim: Animation | undefined
     if (duration > 0 && typeof el.animate === "function") {
-      const blur = this.o.blur
+      const blur = o.blur
       anim = el.animate(
         blur > 0
           ? [{ opacity: 0, filter: `blur(${blur}px)` }, { opacity: 1, filter: "blur(0px)" }]
           : [{ opacity: 0 }, { opacity: 1 }],
-        { duration, delay, easing: this.o.easing, fill: "backwards" }
+        { duration, delay, easing: o.easing, fill: "backwards" }
       )
     }
     this.live.push({ el, anim, until: now + delay + duration + 16 })
   }
+}
 
-  /** Merges words whose fade has finished into the leading text node. */
-  private settle(now: number) {
-    let k = 0
-    while (k < this.live.length && this.live[k].until <= now) k++
-    if (!k) return
-    let add = ""
-    for (let i = 0; i < k; i++) {
-      add += this.live[i].el.textContent
-      this.live[i].el.remove()
+/** Options are usually an inline object; resolve them by value, not identity. */
+function useResolvedOptions(options: StreamTextOptions | undefined) {
+  const key = options ? JSON.stringify(options) : ""
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return React.useMemo(() => resolveStreamTextOptions(options), [key])
+}
+
+export type UseStreamTextOptions = StreamTextOptions & {
+  /** Whether more text is coming. As {@link StreamTextProps.streaming}. */
+  streaming?: boolean
+  /** Return every update as it arrives, with no pacing. */
+  instant?: boolean
+}
+
+/**
+ * The pacing of {@link StreamText} without its rendering: the same buffer,
+ * drain and burst logic, returning the prefix of `text` to show right now.
+ * Render it however the app renders text — through Markdown, say — and, for
+ * the fade, wrap each word in its own element (see {@link streamWords} and
+ * {@link StreamFade}).
+ *
+ * Unlike `StreamText`, this renders the calling component on every drain step,
+ * every `tick` ms while there is a backlog. Text present on mount is returned
+ * as-is, and so is any `text` that does not extend the previous one. Under
+ * `prefers-reduced-motion`, or with `instant`, it returns `text` unchanged.
+ */
+export function useStreamText(
+  text: string,
+  { streaming, instant = false, ...options }: UseStreamTextOptions = {}
+): string {
+  const reduce = useReducedMotion()
+  const [shown, setShown] = React.useState(text)
+  const pacer = React.useRef<Pacer | null>(null)
+  const resolved = useResolvedOptions(options)
+  const skip = instant || !!reduce
+  // Unpaced updates are returned straight from `text`; mirroring each one into
+  // state as well would render twice per update for nothing.
+  const skipRef = React.useRef(skip)
+  skipRef.current = skip
+
+  useIsoLayoutEffect(() => {
+    if (!pacer.current) {
+      const sync = () => {
+        if (!skipRef.current) setShown(pacer.current!.text)
+      }
+      pacer.current = new Pacer(
+        { reveal: sync, flush: sync, reset: sync, settle: () => -1 },
+        text,
+        resolved
+      )
     }
-    this.live.splice(0, k)
-    this.settled.data += add
-  }
+    const p = pacer.current
+    p.attach()
+    return () => p.detach()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useIsoLayoutEffect(() => {
+    const p = pacer.current!
+    p.setOptions(resolved)
+    p.setInstant(skip)
+    p.update(text, streaming)
+    // Catches up after `skip` turns off, and is a no-op otherwise.
+    if (!skip) setShown(p.text)
+  }, [text, streaming, skip, resolved])
+
+  return skip ? text : shown
+}
+
+/** Class of a word element that fades in when it mounts. See {@link streamWords}. */
+export const STREAM_WORD_CLASS = "cui-stream-word"
+
+const SETTLED_ATTR = "data-cui-stream-settled"
+
+const STREAM_WORD_CSS = `
+@keyframes cui-stream-fade { from { opacity: 0 } }
+@keyframes cui-stream-fade-blur { from { opacity: 0; filter: blur(var(--cui-stream-blur)) } }
+.${STREAM_WORD_CLASS} {
+  animation: var(--cui-stream-anim, cui-stream-fade) var(--cui-stream-fade, ${STREAM_TEXT_DEFAULTS.fade}ms)
+    var(--cui-stream-easing, ${STREAM_TEXT_DEFAULTS.easing}) backwards;
+}
+[data-cui-stream-hold] .${STREAM_WORD_CLASS}, .${STREAM_WORD_CLASS}[${SETTLED_ATTR}] { animation: none }
+@media (prefers-reduced-motion: reduce) { .${STREAM_WORD_CLASS} { animation: none } }
+`
+
+/**
+ * Plain text as one element per word, each fading in as it mounts. React keeps
+ * the elements it already has, so as `text` grows only the new words fade.
+ *
+ * Any renderer gets the same effect by giving each word of its output an
+ * element with {@link STREAM_WORD_CLASS} — a Markdown renderer, with a plugin
+ * that splits text nodes into such spans. The CSS comes with
+ * {@link StreamFade}, which `AgentMessage` and `AgentThinking` already wrap
+ * around `renderText`.
+ */
+export function streamWords(text: string): React.ReactNode {
+  return (text.match(/\S+\s*|\s+/g) ?? []).map((w, i) => (
+    <span key={i} className={STREAM_WORD_CLASS}>
+      {w}
+    </span>
+  ))
+}
+
+export type StreamFadeProps = {
+  /** Fade tuning: `fade`, `blur` and `easing` apply; the rest is pacing. */
+  options?: StreamTextOptions
+  children?: React.ReactNode
+}
+
+/**
+ * Ships the CSS for {@link STREAM_WORD_CLASS} and tunes it for the words
+ * inside. Words already present when it mounts are shown as-is, so restored
+ * text does not fade in. It lays out as if it were not there
+ * (`display: contents`).
+ */
+export function StreamFade({ options, children }: StreamFadeProps) {
+  const o = useResolvedOptions(options)
+  const ref = React.useRef<HTMLDivElement>(null)
+  // Holds every fade back until the words of the first render are marked
+  // settled. A passive effect is enough: the hold is in the first paint, and
+  // nothing animates before it lifts.
+  const [hold, setHold] = React.useState(true)
+  React.useEffect(() => {
+    ref.current
+      ?.querySelectorAll(`.${STREAM_WORD_CLASS}`)
+      .forEach((el) => el.setAttribute(SETTLED_ATTR, ""))
+    setHold(false)
+  }, [])
+
+  return (
+    <div
+      ref={ref}
+      className="contents"
+      data-cui-stream-hold={hold ? "" : undefined}
+      style={
+        {
+          "--cui-stream-fade": `${o.fade}ms`,
+          "--cui-stream-easing": o.easing,
+          ...(o.blur > 0 && {
+            "--cui-stream-anim": "cui-stream-fade-blur",
+            "--cui-stream-blur": `${o.blur}px`,
+          }),
+        } as React.CSSProperties
+      }
+    >
+      {/* React 19 hoists this into <head> once, however many rows render it. */}
+      <style href="charlotte-stream-word" precedence="default">
+        {STREAM_WORD_CSS}
+      </style>
+      {children}
+    </div>
+  )
 }
 
 export type StreamTextProps = {
@@ -352,12 +556,7 @@ export function StreamText({ text, streaming, instant = false, options, classNam
   // the first paint. The prop never changes after that, so React never touches
   // the node again; the pacer adopts it and appends to it.
   const [initial] = React.useState(text)
-  const resolved = React.useMemo(
-    () => resolveStreamTextOptions(options),
-    // Options are usually an inline object; compare by value, not identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [options && JSON.stringify(options)]
-  )
+  const resolved = useResolvedOptions(options)
 
   useIsoLayoutEffect(() => {
     const root = ref.current!
@@ -367,7 +566,7 @@ export function StreamText({ text, streaming, instant = false, options, classNam
         node = document.createTextNode(initial)
         root.replaceChildren(node)
       }
-      pacer.current = new Pacer(root, node as Text, initial, resolved)
+      pacer.current = new Pacer(new DomSink(root, node as Text), initial, resolved)
     }
     const p = pacer.current
     p.attach()

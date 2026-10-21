@@ -11,6 +11,7 @@ import {
   type AgentRunItem,
   type AgentThinkingMode,
 } from "@charlotte-ui/labs/agent-run"
+import { streamWords } from "@charlotte-ui/labs/stream-text"
 
 const meta: Meta<typeof AgentRun> = {
   title: "Labs/Agent Run",
@@ -802,12 +803,17 @@ export const PendingThenResolved: Story = {
  * Toggle `streamReveal` to compare. Off is the component's default — every
  * update painted as it lands. On paces the text and fades it in, and shows a
  * burst at once in paragraph groups rather than trickling it.
+ *
+ * `rich` renders the text through `renderMessage` instead, with a toy Markdown
+ * renderer standing in for the app's. It is handed the paced prefix and emits
+ * one element per word with `streamWords`, so the same pacing and fade apply.
  */
 export const StreamReveal: Story = {
   args: { nodeSize: 64, lineWidth: 2 },
   render: (args) => {
     const [items, setItems] = React.useState<AgentRunItem[]>([])
     const [reveal, setReveal] = React.useState(true)
+    const [rich, setRich] = React.useState(false)
     const [tps, setTps] = React.useState(70)
     const [pattern, setPattern] = React.useState<keyof typeof deliveryPatterns>("coldBurst")
     const [maxLag, setMaxLag] = React.useState(300)
@@ -863,6 +869,10 @@ export const StreamReveal: Story = {
             streamReveal
           </label>
           <label className={field}>
+            <input type="checkbox" checked={rich} onChange={(e) => setRich(e.target.checked)} />
+            rich
+          </label>
+          <label className={field}>
             pattern
             <select
               className={input + " w-auto"}
@@ -906,14 +916,40 @@ export const StreamReveal: Story = {
           items={items}
           // A fresh object each render is fine: AgentRun compares it by value.
           streamReveal={reveal ? { maxLag, fade, burstThreshold: burst > 0 ? burst : false, blur } : false}
+          renderMessage={rich ? renderToyMarkdown : undefined}
         />
       </div>
     )
   },
 }
 
+/**
+ * Paragraphs, `**bold**` and `` `code` `` — enough Markdown to show a rich
+ * renderer under `streamReveal`. Every run of text goes through `streamWords`,
+ * which is what a Markdown plugin splitting text nodes into word spans does.
+ */
+function renderToyMarkdown(text: string) {
+  return text.split(/\n{2,}/).map((para, i) => (
+    <p key={i} className="mb-3 last:mb-0">
+      {para.split(/(\*\*[^*]+\*\*|`[^`]+`)/).map((part, j) =>
+        part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+          <strong key={j} className="font-semibold">
+            {streamWords(part.slice(2, -2))}
+          </strong>
+        ) : part.startsWith("`") && part.endsWith("`") && part.length > 2 ? (
+          <code key={j} className="rounded bg-muted px-1 font-mono text-xs">
+            {streamWords(part.slice(1, -1))}
+          </code>
+        ) : (
+          <React.Fragment key={j}>{streamWords(part)}</React.Fragment>
+        )
+      )}
+    </p>
+  ))
+}
+
 const STREAM_SOURCE =
-  "Lint passes and the component is registered in the registry manifest, so a fresh install will pick it up once the endpoint is reachable again. The publish endpoint is down right now, so the generated install URL will need a retry once it recovers.\n\nNothing else in the run depends on it: the timeline renders from the local component, the stories build cleanly, and the reveal animation drives the whole chain off a single progress value per row. When the endpoint comes back, re-running the publish step is enough.\n\nThere is no state to reconcile and no partial write to clean up, because the manifest is only committed after the upload succeeds. "
+  "Lint passes and the component is registered in the `registry` manifest, so a fresh install will pick it up once the endpoint is reachable again. **The publish endpoint is down** right now, so the generated install URL will need a retry once it recovers.\n\nNothing else in the run depends on it: the timeline renders from the local component, the stories build cleanly, and the reveal animation drives the whole chain off a single progress value per row. When the endpoint comes back, re-running the publish step is enough.\n\nThere is no state to reconcile and no partial write to clean up, because the manifest is only committed after the upload succeeds. "
 
 type Delivery = {
   /** Silence before the first token, ms. */
