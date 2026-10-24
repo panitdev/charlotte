@@ -923,6 +923,140 @@ export const StreamReveal: Story = {
   },
 }
 
+/** A pulsing dot on the rail, then a label beside it — what `tail` is for. */
+function WorkingIndicator({ nodeSize }: { nodeSize: number }) {
+  return (
+    <div className="flex items-center gap-4 pt-2">
+      <div className="flex shrink-0 justify-center" style={{ width: nodeSize }}>
+        <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+      </div>
+      <span className="text-sm text-muted-foreground">Working…</span>
+    </div>
+  )
+}
+
+/**
+ * `tail` keeps a "working…" indicator on the end of the line. Tick `after` to
+ * render the same indicator after `<AgentRun>` instead and compare: there it
+ * drops a line in one frame on every wrap while the line eases after it, and a
+ * whole row the moment one streams in.
+ *
+ * The run streams reasoning into a peeking block, opens a tool call while it
+ * runs and folds it once it succeeds, then streams prose. Fold the thinking
+ * block or the call yourself while the prose streams — the tail tracks the fold
+ * exactly rather than easing after it.
+ */
+export const Tail: Story = {
+  args: { nodeSize: 64, lineWidth: 2 },
+  render: (args) => {
+    const [items, setItems] = React.useState<AgentRunItem[]>([])
+    const [working, setWorking] = React.useState(true)
+    const [after, setAfter] = React.useState(false)
+    const runRef = React.useRef(0)
+
+    const run = React.useCallback(() => {
+      const runId = ++runRef.current
+      const alive = () => runRef.current === runId
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const update = (id: string, patch: (item: AgentRunItem) => AgentRunItem) =>
+        setItems((prev) => prev.map((it) => (it.id === id ? patch(it) : it)))
+      setItems([])
+      setWorking(true)
+      ;(async () => {
+        await wait(400)
+        if (!alive()) return
+        setItems([{ kind: "thinking", id: "r1", text: "", mode: "peek", streaming: true }])
+        for (const token of REASONING.match(/\S+\s*/g) ?? []) {
+          await wait(25)
+          if (!alive()) return
+          update("r1", (it) => (it.kind === "thinking" ? { ...it, text: it.text + token } : it))
+        }
+        update("r1", (it) => ({ ...it, title: "Thought for 4s", mode: "collapsed", streaming: false }))
+        await wait(700)
+        if (!alive()) return
+        setItems((prev) => [
+          ...prev,
+          {
+            kind: "tool",
+            id: "t1",
+            name: "Run command",
+            state: "running",
+            input: "bun run lint",
+            open: true,
+          },
+        ])
+        await wait(1600)
+        if (!alive()) return
+        update("t1", (it) => ({ ...it, state: "success", result: "0 problems" }))
+        await wait(500)
+        if (!alive()) return
+        update("t1", (it) => ({ ...it, open: false }))
+        await wait(500)
+        if (!alive()) return
+        setItems((prev) => [...prev, { kind: "message", id: "m1", text: "", streaming: true }])
+        for await (const chunk of syntheticTokens(
+          { tps: 60, ...deliveryPatterns.steady, ttft: 600 },
+          alive
+        )) {
+          if (!alive()) return
+          update("m1", (it) => (it.kind === "message" ? { ...it, text: it.text + chunk } : it))
+        }
+        update("m1", (it) => ({ ...it, streaming: false }))
+        setWorking(false)
+      })()
+    }, [])
+
+    React.useEffect(() => {
+      run()
+      return () => {
+        runRef.current++
+      }
+    }, [run])
+
+    const nodeSize = args.nodeSize ?? 64
+    const field = "flex items-center gap-2 text-xs text-muted-foreground"
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={run}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            Replay
+          </button>
+          <label className={field}>
+            <input type="checkbox" checked={after} onChange={(e) => setAfter(e.target.checked)} />
+            after
+          </label>
+        </div>
+        <div>
+          <AgentRun
+            {...args}
+            items={items}
+            renderTool={(item) => ({ meta: String(item.input), arguments: String(item.input) })}
+            onToolOpenChange={(id, open) =>
+              setItems((prev) =>
+                prev.map((it) => (it.id === id && it.kind === "tool" ? { ...it, open } : it))
+              )
+            }
+            onThinkingModeChange={(id, mode) =>
+              setItems((prev) =>
+                prev.map((it) => (it.id === id && it.kind === "thinking" ? { ...it, mode } : it))
+              )
+            }
+            tail={
+              working && !after ? (run) => <WorkingIndicator nodeSize={run.nodeSize} /> : null
+            }
+          />
+          {working && after ? <WorkingIndicator nodeSize={nodeSize} /> : null}
+        </div>
+      </div>
+    )
+  },
+}
+
 /**
  * Paragraphs, `**bold**` and `` `code` `` — enough Markdown to show a rich
  * renderer under `streamReveal`. Every run of text goes through `streamWords`,

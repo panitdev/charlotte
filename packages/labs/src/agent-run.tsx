@@ -70,6 +70,32 @@ type RunContextValue = {
   isInitialCommit: () => boolean
   /** {@link AgentRunProps.streamReveal}, resolved; rows without `stream` inherit it. */
   stream: { messages: boolean; thinking: boolean; options: StreamTextOptions } | null
+  /** Moves {@link AgentRunProps.tail} with the line — see {@link RunTail}. */
+  tail: RunTail
+}
+
+/**
+ * What keeps {@link AgentRunProps.tail} on the end of the line. The tail sits in
+ * normal flow after the last row, so it already follows every layout change
+ * exactly; these are the two ways the line's end and that layout come apart, as
+ * offsets added on top of it:
+ *
+ * - `lag` — the last row's line eases toward its height after a stream wrap
+ *   while the layout below it has already snapped (see {@link TrailLine}). Only
+ *   the last row writes it: the eased length minus the measured one, so it is 0
+ *   whenever the line tracks exactly — on folds, padding pushes and under
+ *   reduced motion — and the tail is left to the layout.
+ * - `push` — a row that streams in drops the tail by its whole height in one
+ *   frame. A push holds the tail where it was and eases the offset back out over
+ *   {@link PUSH_SETTLE}, which is time the new row is still invisible anyway: its
+ *   reveal never starts sooner, so the tail clears the way before the row draws.
+ */
+type RunTail = {
+  lag: MotionValue<number>
+  /** Offsets the tail by `by` px now and eases that back to 0. */
+  push: (by: number) => void
+  /** True while the timeline's own first commit is mounting. */
+  initial: () => boolean
 }
 
 const RunContext = React.createContext<RunContextValue | null>(null)
@@ -536,7 +562,7 @@ function TrailLine({
    */
   color?: string
 }) {
-  const { nodeSize, lineWidth, reduce } = useRun()
+  const { nodeSize, lineWidth, reduce, tail } = useRun()
   const scaleY = useTransform(progress, range, [0, 1])
 
   // The line's length is the row's height minus its start offset — always driven
@@ -573,35 +599,73 @@ function TrailLine({
   // before it). The reveal owns `scaleY`, the length owns `height` — separate
   // properties on the same element, so they compose without fighting.
   const height = useMotionValue(0)
+  // The length the line is heading for, for the tail's `lag`.
+  const target = React.useRef(0)
+  // A row that streamed in pushes the tail down by however tall it gets until
+  // this time — see RunTail. Rows of the first commit never push: the tail is
+  // already below them on the first paint.
+  const enterUntil = React.useRef<number | null>(null)
+  const rowHeight = React.useRef(0)
+  const isLastNow = React.useRef(isLast)
+  isLastNow.current = isLast
 
   useIsoLayoutEffect(() => {
-    const el = ref.current?.parentElement
-    if (!el) return
+    const line = ref.current
+    const el = line?.parentElement
+    if (!line || !el) return
+    enterUntil.current ??= tail.initial() ? 0 : performance.now() + PUSH_SETTLE * 1000
     let settled = false
     let controls: ReturnType<typeof animate> | undefined
     const measure = () => {
-      const next = Math.max(0, el.getBoundingClientRect().height - from)
+      const box = el.getBoundingClientRect().height
+      const next = Math.max(0, box - from)
+      // Not just the mount: a body that mounts open lands its height a frame
+      // later, and that growth has to be absorbed too.
+      const entering = performance.now() < enterUntil.current!
+      if (entering) tail.push(rowHeight.current - box)
+      rowHeight.current = box
+      target.current = next
       // Non-last rows (and the first measure) land instantly, tracking the layout
       // exactly. Only a settled last row eases — its duration is in lockstep with
       // the `transition-[padding] duration-300` / PUSH_SETTLE used when rows push
-      // each other down.
-      if (!settled || !smooth) {
+      // each other down. An entering row tracks exactly as well: its growth is
+      // already eased through the tail's push, and its line is not drawn yet.
+      if (!settled || !smooth || entering) {
         settled = true
         controls?.stop()
         height.set(next)
+        // Straight to the DOM as well: this runs in a ResizeObserver, after the
+        // frame's animation step, so the MotionValue alone would only land next
+        // frame — a line tracking a fold would run one frame behind it, and pull
+        // away from the node below (or the tail) by that frame's travel.
+        line.style.height = `${next}px`
       } else if (next !== height.get()) {
         controls?.stop()
         controls = animate(height, next, { duration: 0.3, ease: DRAW_EASE })
       }
+      if (isLast) tail.lag.set(height.get() - next)
     }
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
+    const unsub = isLast
+      ? height.on("change", (h) => tail.lag.set(h - target.current))
+      : undefined
     return () => {
       ro.disconnect()
       controls?.stop()
+      unsub?.()
+      // This line is about to snap. When a fold began, the tail snaps with it —
+      // it stays on the line. When a row arrived below, the tail moves on to
+      // that row instead, so what is left of the lag goes to a push and the
+      // tail eases off this line rather than jumping. `isLastNow` is the render
+      // being committed, which is why it is a ref and not this effect's `isLast`.
+      if (isLast) {
+        if (!isLastNow.current) tail.push(tail.lag.get())
+        tail.lag.set(0)
+      }
     }
-  }, [smooth, from])
+  }, [smooth, from, isLast, tail])
 
   return (
     <motion.div
@@ -776,6 +840,17 @@ type AgentRunProps = {
    * `renderThinking`, or a row's `renderText`.
    */
   streamReveal?: boolean | AgentRunStreamReveal
+  /**
+   * Rendered after the last row and kept on the end of its line — a "working…"
+   * indicator, say. Content placed after `<AgentRun>` follows the layout, which
+   * snaps when streamed prose wraps while the line eases after it; the tail
+   * moves with the line instead: eased on a wrap, exactly through a fold or a
+   * padding push, and clear of a row that streams in before that row draws.
+   *
+   * Pass a function to line it up with the rail — it is called with the
+   * timeline's `nodeSize` and `lineWidth`.
+   */
+  tail?: React.ReactNode | ((run: { nodeSize: number; lineWidth: number }) => React.ReactNode)
   /** Outer node diameter in pixels. Defaults to 64 (4rem) — a deliberately spacious node. */
   nodeSize?: number
   /** Stroke width of the line and the node ring, in pixels. */
@@ -837,6 +912,7 @@ export function AgentRun({
   onToolOpenChange,
   revealOnMount = true,
   streamReveal,
+  tail,
   nodeSize = 64,
   lineWidth = 2,
   className,
@@ -877,6 +953,47 @@ export function AgentRun({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey])
 
+  // The tail is tracked whether or not one is rendered, so a tail that appears
+  // mid-run (only while the agent works, say) lands on the line straight away.
+  const tailLag = useMotionValue(0)
+  const tailPush = useMotionValue(0)
+  const tailRef = React.useRef<HTMLDivElement>(null)
+  const hasTail = tail != null && tail !== false
+  // Written to the DOM on every change, not through a `motion` style: `lag`
+  // moves inside a ResizeObserver callback, which runs after this frame's
+  // animation step, so a MotionValue-driven style would only land next frame —
+  // and the tail would paint one frame at the position the layout snapped to.
+  useIsoLayoutEffect(() => {
+    const write = () => {
+      const el = tailRef.current
+      if (el) el.style.transform = `translateY(${tailLag.get() + tailPush.get()}px)`
+    }
+    write()
+    const a = tailLag.on("change", write)
+    const b = tailPush.on("change", write)
+    return () => {
+      a()
+      b()
+    }
+  }, [tailLag, tailPush, hasTail])
+  const reduceRef = React.useRef(!!prefersReduced)
+  reduceRef.current = !!prefersReduced
+  const pushControls = React.useRef<ReturnType<typeof animate>>(undefined)
+  const runTail = React.useMemo<RunTail>(
+    () => ({
+      lag: tailLag,
+      push: (by) => {
+        if (!by || reduceRef.current) return
+        pushControls.current?.stop()
+        tailPush.set(tailPush.get() + by)
+        pushControls.current = animate(tailPush, 0, { duration: PUSH_SETTLE, ease: DRAW_EASE })
+      },
+      initial: () => initialCommit.current,
+    }),
+    [tailLag, tailPush]
+  )
+  React.useEffect(() => () => pushControls.current?.stop(), [])
+
   const ctx = React.useMemo<RunContextValue>(
     () => ({
       nodeSize,
@@ -885,8 +1002,9 @@ export function AgentRun({
       enroll,
       isInitialCommit,
       stream: reveal,
+      tail: runTail,
     }),
-    [nodeSize, lineWidth, prefersReduced, enroll, isInitialCommit, reveal]
+    [nodeSize, lineWidth, prefersReduced, enroll, isInitialCommit, reveal, runTail]
   )
 
   const modeHandler = useItemHandler(onThinkingModeChange)
@@ -959,6 +1077,11 @@ export function AgentRun({
               })
             : child
         )}
+        {hasTail ? (
+          <div ref={tailRef}>
+            {typeof tail === "function" ? tail({ nodeSize, lineWidth }) : tail}
+          </div>
+        ) : null}
       </div>
     </RunContext.Provider>
   )
