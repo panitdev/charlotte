@@ -3,22 +3,24 @@
 import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
-import { buttonVariants } from "@charlotte-ui/button"
+import { Button } from "@charlotte-ui/button"
 import { cn } from "@charlotte-ui/utils"
 
-import { SquircleFallback, squircleClassName } from "./squircle.js"
-
-type ButtonSkin = NonNullable<Parameters<typeof buttonVariants>[0]>
+import { SquircleFallback } from "./squircle.js"
 
 // ─── Parts ────────────────────────────────────────────────────────────────────
 
 /**
  * A modal that interrupts the user to confirm or cancel an action.
  *
- * Unlike `Dialog`, it cannot be dismissed by clicking outside, has no close
- * button, and stays centered on small screens rather than becoming a drawer:
- * the user has to answer it with `AlertDialogAction` or `AlertDialogCancel`
- * (Escape counts as cancel). Focus starts on the cancel button.
+ * Unlike `Dialog`, it cannot be dismissed by clicking outside and has no close
+ * button: the user has to answer it with `AlertDialogAction` or
+ * `AlertDialogCancel` (Escape counts as cancel). Focus starts on the cancel
+ * button.
+ *
+ * On small screens it is a bottom sheet that slides in like `Dialog`'s drawer,
+ * but it is laid out in CSS rather than built on vaul, so it cannot be dragged
+ * away and keeps the alert dialog's semantics.
  */
 function AlertDialog(props: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
@@ -45,6 +47,7 @@ function AlertDialogOverlay({
       data-slot="alert-dialog-overlay"
       className={cn(
         "fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+        sheetMotion,
         className
       )}
       {...props}
@@ -52,7 +55,15 @@ function AlertDialogOverlay({
   )
 }
 
-/** The centered panel, rendered in a portal over an overlay. */
+// vaul's drawer timing, so the sheet moves like `Dialog` does on small screens.
+// From `sm` up the default 150ms/200ms `ease` comes back.
+const sheetMotion =
+  "duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] sm:duration-150 sm:ease-[ease]"
+
+/**
+ * The panel, rendered in a portal over an overlay: a bottom sheet on small
+ * screens, centered from `sm` up.
+ */
 function AlertDialogContent({
   className,
   ...props
@@ -60,12 +71,21 @@ function AlertDialogContent({
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
-      <SquircleFallback>
+      {/* The clip-path fallback would also round the sheet's bottom corners,
+          so it only runs where the panel is centered. */}
+      <SquircleFallback media="(min-width: 640px)">
         <AlertDialogPrimitive.Content
           data-slot="alert-dialog-content"
           className={cn(
-            "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-3xl border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-md",
-            squircleClassName,
+            // Bottom sheet
+            "fixed right-0 bottom-0 left-0 z-50 grid w-full gap-4 rounded-t-[calc(var(--radius)+4px)] border bg-background p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-lg outline-none",
+            "supports-[corner-shape:squircle]:[corner-shape:squircle] supports-[corner-shape:squircle]:rounded-t-[2.25rem]",
+            "data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom",
+            sheetMotion,
+            // Centered from `sm` up
+            "sm:top-[50%] sm:right-auto sm:bottom-auto sm:left-[50%] sm:max-w-md sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-3xl sm:pb-6 sm:duration-200",
+            "sm:supports-[corner-shape:squircle]:rounded-[2.25rem]",
+            "sm:data-[state=open]:slide-in-from-bottom-0 sm:data-[state=open]:fade-in-0 sm:data-[state=open]:zoom-in-95 sm:data-[state=closed]:slide-out-to-bottom-0 sm:data-[state=closed]:fade-out-0 sm:data-[state=closed]:zoom-out-95",
             className
           )}
           {...props}
@@ -122,52 +142,48 @@ function AlertDialogDescription({
   )
 }
 
-type AlertDialogButtonProps = {
-  variant?: ButtonSkin["variant"]
-  size?: ButtonSkin["size"]
-}
-
 /**
- * Confirms and closes. Wears the `Button` skin (`variant="destructive"` for
- * irreversible actions). It closes as soon as it is clicked; to wait on async
- * work, control `open` and call `event.preventDefault()` in `onClick`.
+ * Confirms and closes. Renders a `Button`, so it takes `variant`, `size` and
+ * `loading` (`variant="destructive"` for irreversible actions). It closes as
+ * soon as it is clicked; to wait on async work, control `open`, call
+ * `event.preventDefault()` in `onClick` and set `loading` while it runs.
  *
- * With `asChild` it passes straight through unstyled, so
- * `<AlertDialogAction asChild><Button/></AlertDialogAction>` is not
- * double-styled.
+ * With `asChild` the child replaces the `Button`, so
+ * `<AlertDialogAction asChild><Button/></AlertDialogAction>` still works.
  */
 function AlertDialogAction({
-  className,
+  asChild,
   variant = "default",
   size = "sm",
-  asChild,
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Action> & AlertDialogButtonProps) {
+}: React.ComponentProps<typeof Button>) {
+  if (asChild) {
+    return <AlertDialogPrimitive.Action data-slot="alert-dialog-action" asChild {...props} />
+  }
   return (
-    <AlertDialogPrimitive.Action
-      data-slot="alert-dialog-action"
-      asChild={asChild}
-      className={asChild ? className : cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
+    <AlertDialogPrimitive.Action asChild>
+      <Button data-slot="alert-dialog-action" variant={variant} size={size} {...props} />
+    </AlertDialogPrimitive.Action>
   )
 }
 
-/** Dismisses without acting; takes focus when the dialog opens. Outline by default. */
+/**
+ * Dismisses without acting; takes focus when the dialog opens. Renders an
+ * outline `Button` by default.
+ */
 function AlertDialogCancel({
-  className,
+  asChild,
   variant = "outline",
   size = "sm",
-  asChild,
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Cancel> & AlertDialogButtonProps) {
+}: React.ComponentProps<typeof Button>) {
+  if (asChild) {
+    return <AlertDialogPrimitive.Cancel data-slot="alert-dialog-cancel" asChild {...props} />
+  }
   return (
-    <AlertDialogPrimitive.Cancel
-      data-slot="alert-dialog-cancel"
-      asChild={asChild}
-      className={asChild ? className : cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
+    <AlertDialogPrimitive.Cancel asChild>
+      <Button data-slot="alert-dialog-cancel" variant={variant} size={size} {...props} />
+    </AlertDialogPrimitive.Cancel>
   )
 }
 

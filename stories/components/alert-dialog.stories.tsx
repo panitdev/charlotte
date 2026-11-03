@@ -92,23 +92,20 @@ export const AsyncAction: Story = {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-            <AlertDialogAction asChild>
-              <Button
-                size="sm"
-                variant="destructive"
-                loading={loading}
-                loadingText="Revoking"
-                onClick={(event) => {
-                  event.preventDefault()
-                  setLoading(true)
-                  setTimeout(() => {
-                    setLoading(false)
-                    setOpen(false)
-                  }, 1500)
-                }}
-              >
-                Revoke
-              </Button>
+            <AlertDialogAction
+              variant="destructive"
+              loading={loading}
+              loadingText="Revoking"
+              onClick={(event) => {
+                event.preventDefault()
+                setLoading(true)
+                setTimeout(() => {
+                  setLoading(false)
+                  setOpen(false)
+                }, 1500)
+              }}
+            >
+              Revoke
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

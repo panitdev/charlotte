@@ -22,6 +22,23 @@ function useSupportsCornerShape(): boolean {
   )
 }
 
+function useMediaQuery(query: string | undefined): boolean {
+  const subscribe = React.useCallback(
+    (onChange: () => void) => {
+      if (!query) return () => {}
+      const mq = window.matchMedia(query)
+      mq.addEventListener("change", onChange)
+      return () => mq.removeEventListener("change", onChange)
+    },
+    [query]
+  )
+  return React.useSyncExternalStore(
+    subscribe,
+    () => !query || window.matchMedia(query).matches,
+    () => true
+  )
+}
+
 const SQUIRCLE_RADIUS = 24
 const SQUIRCLE_SMOOTHING = 0.8
 
@@ -36,10 +53,16 @@ export const squircleClassName =
 // Squircle's own measuring ref instead of letting Squircle overwrite it.
 export function SquircleFallback({
   children,
+  media,
   ...props
-}: React.ComponentProps<typeof Slot.Root> & { children: React.ReactElement }) {
+}: React.ComponentProps<typeof Slot.Root> & {
+  children: React.ReactElement
+  /** Only clip while this media query matches */
+  media?: string
+}) {
   const native = useSupportsCornerShape()
-  if (native) return <Slot.Root {...props}>{children}</Slot.Root>
+  const matches = useMediaQuery(media)
+  if (native || !matches) return <Slot.Root {...props}>{children}</Slot.Root>
   // `duration-200` on the content leaves `transition-property` at its `all`
   // default, which would ease every clip-path write and leave the clip trailing
   // a resizing surface. Enter/exit run on keyframes, so nothing else is lost.
