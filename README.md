@@ -14,7 +14,7 @@ under the `@charlotte-ui` scope.
 | `@charlotte-ui/card` | Card surface |
 | `@charlotte-ui/table` | Data table parts |
 | `@charlotte-ui/dropdown-menu` | Dropdown menu |
-| `@charlotte-ui/dialog` | Dialog, a bottom drawer on small screens |
+| `@charlotte-ui/dialog` | Dialog, a bottom drawer on small screens; alert dialog |
 | `@charlotte-ui/labs` | Experimental components; may change or go away |
 | `@charlotte-ui/theme` | Design tokens and base styles |
 | `@charlotte-ui/utils` | `cn` and shared motion constants |

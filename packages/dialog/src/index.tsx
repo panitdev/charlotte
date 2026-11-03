@@ -1,12 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { Dialog as DialogPrimitive, Slot } from "radix-ui"
+import { Dialog as DialogPrimitive } from "radix-ui"
 import { Drawer } from "vaul"
 import { XIcon } from "lucide-react"
-import { Squircle } from "@squircle-js/react"
 
 import { cn } from "@charlotte-ui/utils"
+
+import { SquircleFallback, squircleClassName } from "./squircle.js"
 
 // ─── Mobile detection ─────────────────────────────────────────────────────────
 
@@ -22,57 +23,6 @@ function useIsMobile(breakpoint = 640): boolean {
   }, [breakpoint])
 
   return isMobile
-}
-
-// ─── Squircle corners ─────────────────────────────────────────────────────────
-//
-// Native `corner-shape: squircle` where the browser has it (applied in CSS via
-// `supports-[corner-shape:squircle]:`), otherwise @squircle-js/react clips the
-// element to a squircle path. The clip-path fallback also clips the shadow and
-// the outer edge of the border at the corners — a trade-off for older engines.
-
-const subscribeNoop = () => () => { }
-
-function useSupportsCornerShape(): boolean {
-  return React.useSyncExternalStore(
-    subscribeNoop,
-    () => CSS.supports("corner-shape", "squircle"),
-    // Assume native support on the server; CSS falls back to plain rounding
-    () => true
-  )
-}
-
-const SQUIRCLE_RADIUS = 24
-const SQUIRCLE_SMOOTHING = 0.8
-
-// The native squircle hugs the corner tighter than figma-style smoothing, so it
-// takes a larger radius to read as the same shape.
-const squircleClassName =
-  "supports-[corner-shape:squircle]:[corner-shape:squircle] supports-[corner-shape:squircle]:rounded-[2.25rem]"
-
-// DialogPortal wraps each child in Presence, which needs the child's ref to
-// hold it mounted through the exit animation — so whatever Presence/Portal pass
-// down has to reach the content element. The inner Slot composes that ref with
-// Squircle's own measuring ref instead of letting Squircle overwrite it.
-function SquircleFallback({
-  children,
-  ...props
-}: React.ComponentProps<typeof Slot.Root> & { children: React.ReactElement }) {
-  const native = useSupportsCornerShape()
-  if (native) return <Slot.Root {...props}>{children}</Slot.Root>
-  // `duration-200` on the content leaves `transition-property` at its `all`
-  // default, which would ease every clip-path write and leave the clip trailing
-  // a resizing surface. Enter/exit run on keyframes, so nothing else is lost.
-  return (
-    <Squircle
-      asChild
-      cornerRadius={SQUIRCLE_RADIUS}
-      cornerSmoothing={SQUIRCLE_SMOOTHING}
-      style={{ transitionProperty: "none" }}
-    >
-      <Slot.Root {...props}>{children}</Slot.Root>
-    </Squircle>
-  )
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -430,3 +380,5 @@ export {
   DialogTitle,
   DialogTrigger,
 }
+
+export * from "./alert-dialog.js"
