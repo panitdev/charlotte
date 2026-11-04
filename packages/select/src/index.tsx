@@ -11,11 +11,13 @@ import { cn } from "@charlotte-ui/utils"
  * same `data-slot`/`data-size` hooks and full prop passthrough to Radix, so
  * existing call sites keep working — including the uncontrolled form.
  *
- * What differs is the shell. The trigger wears the `Input` skin
- * (`rounded-lg`, `min-h-11`, 15px text, and the `ring-4 ring-primary/10` focus
- * halo) instead of shadcn's `h-9 rounded-md` input geometry, so a select can
- * sit next to an `Input` in the same form without either looking
- * borrowed. `size="sm"` keeps a compact variant for dense rows.
+ * What differs is the shell. The trigger wears the `Input` skin — the
+ * `rounded-full` pill, `min-h-11`, 15px text, and the `ring-4 ring-primary/10`
+ * halo on any focus, not just keyboard focus — instead of shadcn's
+ * `h-9 rounded-md` input geometry, so a select can sit next to an `Input` in
+ * the same form without either looking borrowed. A leading icon sits where
+ * `Input`'s `icon` does and turns primary with the field. `size="sm"` keeps a
+ * compact variant for dense rows.
  *
  * Open state gets the same treatment as focus: a menu that is open reads as an
  * active field even after focus moves into the popper. `aria-invalid` swaps the
@@ -56,13 +58,17 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "group/select-trigger flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card text-foreground outline-none transition-all duration-200",
+        "group/select-trigger flex w-full items-center justify-between gap-2 rounded-full border border-border bg-card text-foreground outline-none transition-all duration-200",
         "data-[size=default]:min-h-11 data-[size=default]:px-3 data-[size=default]:py-2.5 data-[size=default]:text-[15px]",
         "data-[size=sm]:min-h-9 data-[size=sm]:px-2.5 data-[size=sm]:py-1.5 data-[size=sm]:text-sm",
+        // Input's icon slot: pl-4 and a 12px gap, tinted primary while the field is active.
+        "data-[size=default]:has-[>svg:first-child]:gap-3 data-[size=default]:has-[>svg:first-child]:pl-4",
+        "[&>svg:first-child]:transition-colors focus:[&>svg:first-child]:text-primary data-[state=open]:[&>svg:first-child]:text-primary",
         "hover:border-foreground/20",
-        "focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10",
+        "focus:border-primary focus:ring-4 focus:ring-primary/10",
         "data-[state=open]:border-primary data-[state=open]:ring-4 data-[state=open]:ring-primary/10",
-        "aria-invalid:border-destructive/70 aria-invalid:ring-4 aria-invalid:ring-destructive/10",
+        // Like Input, an active field reads as active, not as an error.
+        "aria-invalid:not-focus:data-[state=closed]:border-destructive/70 aria-invalid:not-focus:data-[state=closed]:ring-4 aria-invalid:not-focus:data-[state=closed]:ring-destructive/10",
         "disabled:cursor-not-allowed disabled:border-border disabled:bg-muted/40 disabled:opacity-80 disabled:hover:border-border",
         "data-[placeholder]:text-muted-foreground/70",
         // flex-1 so a leading icon can sit beside the value without justify-between stranding it mid-trigger.
