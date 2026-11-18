@@ -16,10 +16,10 @@ type Story = StoryObj<typeof Collapsible>
 
 export const Default: Story = {
   render: (args) => (
-    <Collapsible {...args} className="w-72 max-w-full space-y-2">
+    <Collapsible {...args} className="w-72 max-w-full">
       <CollapsibleTrigger fullWidth>Delivery details</CollapsibleTrigger>
       <CollapsibleContent>
-        <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Orders ship within two business days. Tracking is emailed once your order ships.
         </p>
       </CollapsibleContent>
@@ -41,12 +41,14 @@ export const Controlled: Story = {
         <Button type="button" variant="outline" onClick={() => setOpen(!open)}>
           {open ? "Hide delivery details" : "Show delivery details"}
         </Button>
-        <Collapsible open={open} onOpenChange={setOpen} className="space-y-2">
+        <Collapsible open={open} onOpenChange={setOpen}>
           <CollapsibleTrigger asChild>
-            <Button variant="secondary">Delivery details</Button>
+            <Button variant="ghost" fullWidth className="h-[44px] transform-none! hover:bg-transparent">
+              Delivery details
+            </Button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <p className="px-4 py-2 text-sm text-muted-foreground">Standard shipping takes 3–5 business days.</p>
+            <p className="text-sm text-muted-foreground">Standard shipping takes 3–5 business days.</p>
           </CollapsibleContent>
         </Collapsible>
       </div>

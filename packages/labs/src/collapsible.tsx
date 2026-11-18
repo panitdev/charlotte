@@ -7,14 +7,24 @@ import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 import { Button } from "@charlotte-ui/button"
 import { cn, DEFAULT_EASE } from "@charlotte-ui/utils"
 
-/** Groups a disclosure trigger and its content. Supports controlled and uncontrolled open state. */
-function Collapsible(props: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
-  return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />
+/** Outlined disclosure surface with controlled and uncontrolled open state. */
+function Collapsible({ className, ...props }: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
+  return (
+    <CollapsiblePrimitive.Root
+      data-slot="collapsible"
+      className={cn(
+        "rounded-[23px] border border-border bg-card motion-safe:transition-shadow",
+        "data-[state=closed]:shadow-[0_1px_2px_oklch(0_0_0_/_0.04)] data-[state=closed]:hover:shadow-[0_2px_5px_oklch(0_0_0_/_0.08)]",
+        className
+      )}
+      {...props}
+    />
+  )
 }
 
 /**
- * Toggles the disclosure. The default trigger uses Charlotte's ghost Button
- * with its Liquid Glass press effect and a chevron that rotates when open.
+ * Toggles the disclosure from the full header row with Charlotte's Liquid Glass
+ * press effect and a chevron that rotates when open.
  * Set `fullWidth` to align the label and chevron at opposite ends.
  * Use `asChild` to supply your own trigger.
  */
@@ -35,8 +45,18 @@ function CollapsibleTrigger({
 
   return (
     <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" asChild {...props}>
-      <Button variant="ghost" fullWidth={fullWidth} className={cn("group/collapsible-trigger", className)}>
-        <span className={cn("flex min-w-0 items-center gap-2", fullWidth && "w-full justify-between px-4 text-start")}>
+      <Button
+        variant="ghost"
+        fullWidth
+        className={cn(
+          "group/collapsible-trigger h-[44px] transform-none! rounded-[22px] px-4 font-semibold hover:bg-transparent focus-visible:ring-inset",
+          "data-[state=open]:rounded-b-none data-[state=open]:hover:bg-muted/60",
+          // Keep the pill lens above the animating body while the press effect is visible.
+          "has-[[data-slot=button-glass]]:z-10 [&>[data-slot=button-glass]]:rounded-full",
+          className
+        )}
+      >
+        <span className={cn("flex w-full min-w-0 items-center gap-2 px-4 text-start", fullWidth && "justify-between")}>
           <span className={fullWidth ? "min-w-0 truncate" : undefined}>{children}</span>
           <ChevronDown
             aria-hidden="true"
@@ -50,14 +70,20 @@ function CollapsibleTrigger({
 
 const contentStyle = { "--collapsible-ease": `cubic-bezier(${DEFAULT_EASE.join(", ")})` } as React.CSSProperties
 
-/** Clips overflow as the panel changes height, fades, and slides. Respects reduced-motion preferences. */
+/**
+ * Clips overflow as the panel changes height, fades, and slides. Respects reduced-motion preferences.
+ * The default inner padding collapses with the panel. Use `asChild` to supply your own layout.
+ */
 function CollapsibleContent({
+  asChild,
+  children,
   className,
   style,
   ...props
 }: React.ComponentProps<typeof CollapsiblePrimitive.Content>) {
   return (
     <CollapsiblePrimitive.Content
+      asChild={asChild}
       data-slot="collapsible-content"
       style={{ ...contentStyle, ...style }}
       className={cn(
@@ -67,7 +93,9 @@ function CollapsibleContent({
         className
       )}
       {...props}
-    />
+    >
+      {asChild ? children : <div className="px-4 pb-4">{children}</div>}
+    </CollapsiblePrimitive.Content>
   )
 }
 
