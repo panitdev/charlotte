@@ -110,6 +110,7 @@
       "name": "@charlotte-ui/labs",
       "version": "0.1.0",
       "dependencies": {
+        "@charlotte-ui/button": "^0.1.0",
         "@charlotte-ui/dialog": "^0.1.0",
         "@charlotte-ui/utils": "^0.1.0",
         "vaul": "^1.1.2",
@@ -117,6 +118,7 @@
       "peerDependencies": {
         "framer-motion": "^12.23.12",
         "lucide-react": ">=0.487.0",
+        "radix-ui": "^1.4.3",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
       },

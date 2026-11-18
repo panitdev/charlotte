@@ -45,6 +45,7 @@ source yourself:
 
 ```tsx
 import { Button } from "@charlotte-ui/button"
+import { Collapsible } from "@charlotte-ui/labs/collapsible"
 import { FlowDialog } from "@charlotte-ui/labs/flow-dialog"
 ```
 
