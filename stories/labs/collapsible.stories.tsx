@@ -17,7 +17,7 @@ type Story = StoryObj<typeof Collapsible>
 export const Default: Story = {
   render: (args) => (
     <Collapsible {...args} className="w-72 max-w-full space-y-2">
-      <CollapsibleTrigger>Delivery details</CollapsibleTrigger>
+      <CollapsibleTrigger fullWidth>Delivery details</CollapsibleTrigger>
       <CollapsibleContent>
         <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
           Orders ship within two business days. Tracking is emailed once your order ships.

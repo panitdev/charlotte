@@ -15,14 +15,16 @@ function Collapsible(props: React.ComponentProps<typeof CollapsiblePrimitive.Roo
 /**
  * Toggles the disclosure. The default trigger uses Charlotte's ghost Button
  * with its Liquid Glass press effect and a chevron that rotates when open.
+ * Set `fullWidth` to align the label and chevron at opposite ends.
  * Use `asChild` to supply your own trigger.
  */
 function CollapsibleTrigger({
   asChild,
   children,
   className,
+  fullWidth = false,
   ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.Trigger>) {
+}: React.ComponentProps<typeof CollapsiblePrimitive.Trigger> & { fullWidth?: boolean }) {
   if (asChild) {
     return (
       <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" asChild className={className} {...props}>
@@ -33,12 +35,14 @@ function CollapsibleTrigger({
 
   return (
     <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" asChild {...props}>
-      <Button variant="ghost" className={cn("group/collapsible-trigger", className)}>
-        {children}
-        <ChevronDown
-          aria-hidden="true"
-          className="text-muted-foreground transition-transform group-data-[state=open]/collapsible-trigger:rotate-180 motion-reduce:transition-none"
-        />
+      <Button variant="ghost" fullWidth={fullWidth} className={cn("group/collapsible-trigger", className)}>
+        <span className={cn("flex min-w-0 items-center gap-2", fullWidth && "w-full justify-between px-4 text-start")}>
+          <span className={fullWidth ? "min-w-0 truncate" : undefined}>{children}</span>
+          <ChevronDown
+            aria-hidden="true"
+            className="text-muted-foreground transition-transform group-data-[state=open]/collapsible-trigger:rotate-180 motion-reduce:transition-none"
+          />
+        </span>
       </Button>
     </CollapsiblePrimitive.Trigger>
   )
@@ -46,7 +50,7 @@ function CollapsibleTrigger({
 
 const contentStyle = { "--collapsible-ease": `cubic-bezier(${DEFAULT_EASE.join(", ")})` } as React.CSSProperties
 
-/** Animates height and opacity without clipping overflow. Respects reduced-motion preferences. */
+/** Clips overflow as the panel changes height, fades, and slides. Respects reduced-motion preferences. */
 function CollapsibleContent({
   className,
   style,
@@ -57,8 +61,9 @@ function CollapsibleContent({
       data-slot="collapsible-content"
       style={{ ...contentStyle, ...style }}
       className={cn(
-        "motion-safe:data-[state=open]:animate-[collapsible-down_250ms_var(--collapsible-ease),enter_250ms_var(--collapsible-ease)] motion-safe:data-[state=open]:fade-in-0",
-        "motion-safe:data-[state=closed]:animate-[collapsible-up_200ms_var(--collapsible-ease),exit_200ms_var(--collapsible-ease)] motion-safe:data-[state=closed]:fade-out-0",
+        "overflow-clip",
+        "motion-safe:data-[state=open]:animate-[collapsible-down_250ms_var(--collapsible-ease),enter_250ms_var(--collapsible-ease)] motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=open]:slide-in-from-top-[4px]",
+        "motion-safe:data-[state=closed]:animate-[collapsible-up_200ms_var(--collapsible-ease),exit_200ms_var(--collapsible-ease)] motion-safe:data-[state=closed]:fade-out-0 motion-safe:data-[state=closed]:slide-out-to-top-[4px]",
         className
       )}
       {...props}
